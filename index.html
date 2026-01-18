@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>AndroSB</title>
+    <meta name="google-site-verification" content="IZg6wywpr1xQH89vA1zJ7nnAHFwwiWux2LePPavXNyQ" />
+    
+    <title>Small Basic Pro - Logic Fix</title>
     <style>
         :root { --green: #33ff33; --dim: #0a3d0a; --bg: #050505; }
         body { background: #111; color: var(--green); font-family: 'Consolas', monospace; padding: 20px; }
@@ -81,18 +83,15 @@ EndIf</textarea>
                 let line = lines[i].trim();
                 if (!line || line.startsWith("'")) { i++; continue; }
 
-                // 1. TextWindow.ReadNumber
                 if (line.includes("TextWindow.ReadNumber()")) {
                     const varName = line.split('=')[0].trim();
                     variables[varName] = await readNumber();
                 }
-                // 2. If Statements
                 else if (line.toLowerCase().startsWith("if ")) {
                     const condition = line.match(/if (.*) then/i)[1];
                     const isTrue = evaluateCondition(condition);
                     
                     if (!isTrue) {
-                        // Skip to EndIf if condition is false
                         let depth = 0;
                         while (i < lines.length) {
                             let l = lines[i].trim().toLowerCase();
@@ -103,12 +102,10 @@ EndIf</textarea>
                         }
                     }
                 }
-                // 3. TextWindow.WriteLine
                 else if (line.toLowerCase().startsWith("textwindow.writeline")) {
                     const content = line.match(/\((.*)\)/)[1];
                     print(resolveValue(content));
                 }
-                // 4. Assignments
                 else if (line.includes("=") && !line.toLowerCase().includes("if")) {
                     const [name, expr] = line.split("=").map(s => s.trim());
                     variables[name] = evaluateMath(expr);
@@ -133,9 +130,7 @@ EndIf</textarea>
         }
 
         function evaluateCondition(cond) {
-            // Small Basic uses single = for comparison
             let jsCond = cond.replace(/[^<>!=]=[^=]/g, ' == '); 
-            // Replace variables with actual numbers
             for (let v in variables) {
                 let re = new RegExp("\\b" + v + "\\b", "g");
                 jsCond = jsCond.replace(re, variables[v]);
