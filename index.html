@@ -3,38 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="google-site-verification" content="IZg6wywpr1xQH89vA1zJ7nnAHFwwiWux2LePPavXNyQ" />
-    
-    <title>Small Basic Pro - Logic Fix</title>
+    <title>AndroSB</title>
     <style>
         :root { --green: #33ff33; --dim: #0a3d0a; --bg: #050505; }
-        body { background: #111; color: var(--green); font-family: 'Consolas', monospace; padding: 20px; }
+        body { background: #111; color: var(--green); font-family: 'Consolas', monospace; padding: 20px; margin: 0; }
         #editor { background: #000; border: 1px solid var(--dim); padding: 15px; margin-bottom: 10px; }
-        textarea { background: transparent; border: none; color: var(--green); width: 100%; height: 150px; outline: none; font-size: 1rem; resize: none; }
-        button { background: var(--dim); color: var(--green); border: 1px solid var(--green); padding: 8px 20px; cursor: pointer; font-weight: bold; }
+        textarea { background: transparent; border: none; color: var(--green); width: 100%; height: 180px; outline: none; font-size: 1rem; resize: none; }
+        button { background: var(--dim); color: var(--green); border: 1px solid var(--green); padding: 10px 25px; cursor: pointer; font-weight: bold; }
         button:hover { background: var(--green); color: #000; }
-        #console { background: var(--bg); border: 2px solid var(--dim); padding: 15px; min-height: 200px; overflow-y: auto; }
-        #read-input { background: transparent; border: none; color: white; outline: none; font-family: inherit; font-size: inherit; width: 50px; border-bottom: 1px solid var(--green); display: none; }
-        .error { color: #ff5555; }
+        #console { background: var(--bg); border: 2px solid var(--dim); padding: 15px; height: 300px; overflow-y: auto; box-shadow: inset 0 0 10px #000; }
+        #read-input { background: transparent; border: none; color: white; outline: none; font-family: inherit; font-size: inherit; width: 100px; border-bottom: 1px solid var(--green); display: none; }
+        .system { color: #555; font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
     <div id="editor">
         <textarea id="code-input" spellcheck="false">
-TextWindow.WriteLine("Enter age")
-e = TextWindow.ReadNumber()
-
-If e >= 18 Then
-  TextWindow.WriteLine("You are eligible to vote")
-EndIf
-
-If e < 18 Then
-  TextWindow.WriteLine("Not eligible to vote")
-EndIf</textarea>
+</textarea>
         <button id="run-btn">▶ RUN PROGRAM</button>
     </div>
 
     <div id="console">
+        <div class="system">> androSB_terminal_ready!!</div></div>
         <div id="output-area"></div>
         <span id="prompt" style="display:none">> </span><input type="text" id="read-input">
     </div>
@@ -46,11 +37,11 @@ EndIf</textarea>
         let variables = {};
         let resolveInput;
 
-        function print(text, isError = false) {
+        function print(text) {
             const div = document.createElement('div');
-            if (isError) div.className = 'error';
             div.textContent = text;
             outputArea.appendChild(div);
+            document.getElementById('console').scrollTop = document.getElementById('console').scrollHeight;
         }
 
         function readNumber() {
@@ -75,38 +66,46 @@ EndIf</textarea>
 
         async function runProgram() {
             outputArea.innerHTML = '';
-            variables = {}; // Reset variables every run
+            variables = {};
             const lines = document.getElementById('code-input').value.split('\n');
             let i = 0;
+            let skipBlock = false;
 
             while (i < lines.length) {
                 let line = lines[i].trim();
+                let lowerLine = line.toLowerCase();
+                
                 if (!line || line.startsWith("'")) { i++; continue; }
 
+                // 1. INPUT
                 if (line.includes("TextWindow.ReadNumber()")) {
                     const varName = line.split('=')[0].trim();
                     variables[varName] = await readNumber();
                 }
-                else if (line.toLowerCase().startsWith("if ")) {
-                    const condition = line.match(/if (.*) then/i)[1];
-                    const isTrue = evaluateCondition(condition);
-                    
-                    if (!isTrue) {
-                        let depth = 0;
-                        while (i < lines.length) {
-                            let l = lines[i].trim().toLowerCase();
-                            if (l.startsWith("if ")) depth++;
-                            if (l === "endif") depth--;
-                            if (depth === 0) break;
-                            i++;
-                        }
+                // 2. LOGIC (IF / ELSEIF / ELSE)
+                else if (lowerLine.startsWith("if ") || lowerLine.startsWith("elseif ")) {
+                    const condition = line.match(/(?:if|elseif) (.*) then/i)[1];
+                    if (evaluateCondition(condition)) {
+                        skipBlock = false; // Execute this block
+                    } else {
+                        i = jumpToNextBranch(lines, i);
+                        continue;
                     }
                 }
-                else if (line.toLowerCase().startsWith("textwindow.writeline")) {
+                else if (lowerLine === "else") {
+                    // If we reached an Else, it means no previous If/ElseIf was true
+                    skipBlock = false; 
+                }
+                else if (lowerLine === "endif") {
+                    skipBlock = false;
+                }
+                // 3. OUTPUT
+                else if (lowerLine.startsWith("textwindow.writeline")) {
                     const content = line.match(/\((.*)\)/)[1];
                     print(resolveValue(content));
                 }
-                else if (line.includes("=") && !line.toLowerCase().includes("if")) {
+                // 4. MATH / VARS
+                else if (line.includes("=") && !lowerLine.includes("if")) {
                     const [name, expr] = line.split("=").map(s => s.trim());
                     variables[name] = evaluateMath(expr);
                 }
@@ -130,12 +129,31 @@ EndIf</textarea>
         }
 
         function evaluateCondition(cond) {
-            let jsCond = cond.replace(/[^<>!=]=[^=]/g, ' == '); 
+            // Convert Small Basic syntax to JS
+            let js = cond.replace(/<>/g, '!==')
+                         .replace(/ And /gi, ' && ')
+                         .replace(/ Or /gi, ' || ')
+                         .replace(/([^<>!=])=([^=])/g, '$1 == $2'); // Fixes the e=10 issue
+            
             for (let v in variables) {
                 let re = new RegExp("\\b" + v + "\\b", "g");
-                jsCond = jsCond.replace(re, variables[v]);
+                js = js.replace(re, variables[v]);
             }
-            try { return eval(jsCond); } catch { return false; }
+            try { return eval(js); } catch { return false; }
+        }
+
+        function jumpToNextBranch(lines, index) {
+            let depth = 0;
+            for (let j = index + 1; j < lines.length; j++) {
+                let l = lines[j].trim().toLowerCase();
+                if (l.startsWith("if ")) depth++;
+                if (l === "endif") {
+                    if (depth === 0) return j;
+                    depth--;
+                }
+                if (depth === 0 && (l.startsWith("elseif ") || l === "else")) return j - 1;
+            }
+            return lines.length;
         }
 
         document.getElementById('run-btn').addEventListener('click', runProgram);
