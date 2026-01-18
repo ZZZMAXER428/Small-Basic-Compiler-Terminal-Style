@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Small Basic Pro - Logic Fix</title>
+    <style>
+        :root { --green: #33ff33; --dim: #0a3d0a; --bg: #050505; }
+        body { background: #111; color: var(--green); font-family: 'Consolas', monospace; padding: 20px; }
+        #editor { background: #000; border: 1px solid var(--dim); padding: 15px; margin-bottom: 10px; }
+        textarea { background: transparent; border: none; color: var(--green); width: 100%; height: 150px; outline: none; font-size: 1rem; resize: none; }
+        button { background: var(--dim); color: var(--green); border: 1px solid var(--green); padding: 8px 20px; cursor: pointer; font-weight: bold; }
+        button:hover { background: var(--green); color: #000; }
+        #console { background: var(--bg); border: 2px solid var(--dim); padding: 15px; min-height: 200px; overflow-y: auto; }
+        #read-input { background: transparent; border: none; color: white; outline: none; font-family: inherit; font-size: inherit; width: 50px; border-bottom: 1px solid var(--green); display: none; }
+        .error { color: #ff5555; }
+    </style>
+</head>
+<body>
+
+    <div id="editor">
+        <textarea id="code-input" spellcheck="false">
+TextWindow.WriteLine("Enter age")
+e = TextWindow.ReadNumber()
+
+If e >= 18 Then
+  TextWindow.WriteLine("You are eligible to vote")
+EndIf
+
+If e < 18 Then
+  TextWindow.WriteLine("Not eligible to vote")
+EndIf</textarea>
+        <button id="run-btn">▶ RUN PROGRAM</button>
+    </div>
+
+    <div id="console">
+        <div id="output-area"></div>
+        <span id="prompt" style="display:none">> </span><input type="text" id="read-input">
+    </div>
+
+    <script>
+        const outputArea = document.getElementById('output-area');
+        const readInput = document.getElementById('read-input');
+        const prompt = document.getElementById('prompt');
+        let variables = {};
+        let resolveInput;
+
+        function print(text, isError = false) {
+            const div = document.createElement('div');
+            if (isError) div.className = 'error';
+            div.textContent = text;
+            outputArea.appendChild(div);
+        }
+
+        function readNumber() {
+            return new Promise(resolve => {
+                readInput.style.display = 'inline';
+                prompt.style.display = 'inline';
+                readInput.focus();
+                resolveInput = resolve;
+            });
+        }
+
+        readInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const val = parseFloat(readInput.value);
+                print("> " + readInput.value);
+                readInput.value = '';
+                readInput.style.display = 'none';
+                prompt.style.display = 'none';
+                resolveInput(isNaN(val) ? 0 : val);
+            }
+        });
+
+        async function runProgram() {
+            outputArea.innerHTML = '';
+            variables = {}; // Reset variables every run
+            const lines = document.getElementById('code-input').value.split('\n');
+            let i = 0;
+
+            while (i < lines.length) {
+                let line = lines[i].trim();
+                if (!line || line.startsWith("'")) { i++; continue; }
+
+                // 1. TextWindow.ReadNumber
+                if (line.includes("TextWindow.ReadNumber()")) {
+                    const varName = line.split('=')[0].trim();
+                    variables[varName] = await readNumber();
+                }
+                // 2. If Statements
+                else if (line.toLowerCase().startsWith("if ")) {
+                    const condition = line.match(/if (.*) then/i)[1];
+                    const isTrue = evaluateCondition(condition);
+                    
+                    if (!isTrue) {
+                        // Skip to EndIf if condition is false
+                        let depth = 0;
+                        while (i < lines.length) {
+                            let l = lines[i].trim().toLowerCase();
+                            if (l.startsWith("if ")) depth++;
+                            if (l === "endif") depth--;
+                            if (depth === 0) break;
+                            i++;
+                        }
+                    }
+                }
+                // 3. TextWindow.WriteLine
+                else if (line.toLowerCase().startsWith("textwindow.writeline")) {
+                    const content = line.match(/\((.*)\)/)[1];
+                    print(resolveValue(content));
+                }
+                // 4. Assignments
+                else if (line.includes("=") && !line.toLowerCase().includes("if")) {
+                    const [name, expr] = line.split("=").map(s => s.trim());
+                    variables[name] = evaluateMath(expr);
+                }
+                i++;
+            }
+        }
+
+        function resolveValue(token) {
+            token = token.trim();
+            if (token.startsWith('"')) return token.replace(/"/g, '');
+            return variables[token] !== undefined ? variables[token] : token;
+        }
+
+        function evaluateMath(expr) {
+            let processed = expr;
+            for (let v in variables) {
+                let re = new RegExp("\\b" + v + "\\b", "g");
+                processed = processed.replace(re, variables[v]);
+            }
+            try { return eval(processed); } catch { return expr; }
+        }
+
+        function evaluateCondition(cond) {
+            // Small Basic uses single = for comparison
+            let jsCond = cond.replace(/[^<>!=]=[^=]/g, ' == '); 
+            // Replace variables with actual numbers
+            for (let v in variables) {
+                let re = new RegExp("\\b" + v + "\\b", "g");
+                jsCond = jsCond.replace(re, variables[v]);
+            }
+            try { return eval(jsCond); } catch { return false; }
+        }
+
+        document.getElementById('run-btn').addEventListener('click', runProgram);
+    </script>
+</body>
+</html>
